@@ -114,8 +114,12 @@ module FakeS3
     def copy_object(src_bucket_name, src_name, dst_bucket_name, dst_name, request)
       src_root = File.join(@root,src_bucket_name,src_name,FAKE_S3_METADATA_DIR)
       src_metadata_filename = File.join(src_root, "metadata")
-      src_metadata = YAML.load(File.open(src_metadata_filename, 'rb').read)
       src_content_filename = File.join(src_root, "content")
+
+      if !FileTest.exist?(src_metadata_filename) || !FileTest.exist?(src_content_filename)
+        return nil
+      end
+      src_metadata = YAML.load(File.open(src_metadata_filename, 'rb').read)
 
       dst_filename= File.join(@root,dst_bucket_name,dst_name)
       FileUtils.mkdir_p(dst_filename)

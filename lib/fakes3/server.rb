@@ -200,7 +200,14 @@ module FakeS3
       case s_req.type
       when Request::COPY
         object = @store.copy_object(s_req.src_bucket, s_req.src_object, s_req.bucket, s_req.object, request)
-        response.body = XmlAdapter.copy_object_result(object)
+        if object
+          response.body = XmlAdapter.copy_object_result(object)
+        else
+          response.status = 400
+          response.body = XmlAdapter.error_no_such_key(s_req.object)
+          response['Content-Type'] = "application/xml"
+          response['Access-Control-Allow-Origin'] = @cors_allow_origin
+        end
       when Request::STORE
         bucket_obj = @store.get_bucket(s_req.bucket)
         if !bucket_obj
@@ -231,8 +238,14 @@ module FakeS3
           request
         )
 
-        response['Content-Type'] = "text/xml"
-        response.body = XmlAdapter.copy_object_result real_obj
+        response['Content-Type'] = "application/xml"
+        if real_obj
+          response.body = XmlAdapter.copy_object_result real_obj
+        else
+          response.status = 400
+          response.body = XmlAdapter.error_no_such_key(s_req.object)
+          response['Access-Control-Allow-Origin'] = @cors_allow_origin
+        end
       else
         bucket_obj  = @store.get_bucket(s_req.bucket)
         if !bucket_obj
