@@ -353,10 +353,23 @@ module FakeS3
       case s_req.type
       when Request::DELETE_OBJECTS
         bucket_obj = @store.get_bucket(s_req.bucket)
+
+        if !bucket_obj
+          # Lazily create a bucket.  TODO fix this to return the proper error
+          bucket_obj = @store.create_bucket(s_req.bucket)
+        end
+
         keys = XmlParser.delete_objects(s_req.webrick_request)
+
         @store.delete_objects(bucket_obj,keys,s_req.webrick_request)
       when Request::DELETE_OBJECT
         bucket_obj = @store.get_bucket(s_req.bucket)
+
+        if !bucket_obj
+          # Lazily create a bucket.  TODO fix this to return the proper error
+          bucket_obj = @store.create_bucket(s_req.bucket)
+        end
+
         @store.delete_object(bucket_obj,s_req.object,s_req.webrick_request)
       when Request::DELETE_BUCKET
         @store.delete_bucket(s_req.bucket)
