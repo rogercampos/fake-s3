@@ -16,14 +16,20 @@ module FakeS3
     # sub second precision.
     SUBSECOND_PRECISION = 3
 
+
+    class << self
+      attr_accessor :proc_if_not_found
+    end
+
+
     def initialize(root, quiet_mode)
       @root = root
       @buckets = []
       @bucket_hash = {}
       @quiet_mode = quiet_mode
-      Dir[File.join(root,"*")].each do |bucket|
+      Dir[File.join(root, "*")].each do |bucket|
         bucket_name = File.basename(bucket)
-        bucket_obj = Bucket.new(bucket_name,Time.now,[])
+        bucket_obj = Bucket.new(bucket_name, Time.now, [])
         @buckets << bucket_obj
         @bucket_hash[bucket_name] = bucket_obj
       end
@@ -78,10 +84,11 @@ module FakeS3
       @bucket_hash.delete(bucket_name)
     end
 
-    def get_object(bucket, object_name, request)
+    def get_object(bucket_name, object_name, request)
       begin
+
         real_obj = S3Object.new
-        obj_root = File.join(@root,bucket,object_name,FAKE_S3_METADATA_DIR)
+        obj_root = File.join(@root, bucket_name, object_name, FAKE_S3_METADATA_DIR)
         metadata = File.open(File.join(obj_root, "metadata")) { |file| YAML::load(file) }
         real_obj.name = object_name
         real_obj.md5 = metadata[:md5]
@@ -99,7 +106,22 @@ module FakeS3
         real_obj.cache_control = metadata[:cache_control]
         real_obj.custom_metadata = metadata.fetch(:custom_metadata) { {} }
         return real_obj
-      rescue
+
+
+      rescue StandardError
+
+        bucket = get_bucket(bucket_name) || create_bucket(bucket_name)
+
+        if self.class.proc_if_not_found && (file_body = self.class.proc_if_not_found.call(object_name))
+
+          # Store and retry
+          # todo: create a fake request...
+          do_store_object(bucket, object_name, file_body, request)
+
+          return get_object(bucket.name, object_name, request)
+
+        end
+
         unless @quiet_mode
           puts $!
           $!.backtrace.each { |line| puts line }
@@ -112,7 +134,7 @@ module FakeS3
     end
 
     def copy_object(src_bucket_name, src_name, dst_bucket_name, dst_name, request)
-      src_root = File.join(@root,src_bucket_name,src_name,FAKE_S3_METADATA_DIR)
+      src_root = File.join(@root, src_bucket_name, src_name, FAKE_S3_METADATA_DIR)
       src_metadata_filename = File.join(src_root, "metadata")
       src_content_filename = File.join(src_root, "content")
 
@@ -121,10 +143,10 @@ module FakeS3
       end
       src_metadata = YAML.load(File.open(src_metadata_filename, 'rb').read)
 
-      dst_filename= File.join(@root,dst_bucket_name,dst_name)
+      dst_filename = File.join(@root, dst_bucket_name, dst_name)
       FileUtils.mkdir_p(dst_filename)
 
-      metadata_dir = File.join(dst_filename,FAKE_S3_METADATA_DIR)
+      metadata_dir = File.join(dst_filename, FAKE_S3_METADATA_DIR)
       FileUtils.mkdir_p(metadata_dir)
 
       content = File.join(metadata_dir, "content")
@@ -137,8 +159,8 @@ module FakeS3
           end
         end
 
-        File.open(metadata,'w') do |f|
-          File.open(src_metadata_filename,'r') do |input|
+        File.open(metadata, 'w') do |f|
+          File.open(src_metadata_filename, 'r') do |input|
             f << input.read
           end
         end
@@ -147,7 +169,7 @@ module FakeS3
       metadata_directive = request.header["x-amz-metadata-directive"].first
       if metadata_directive == "REPLACE"
         metadata_struct = create_metadata(content, request)
-        File.open(metadata,'w') do |f|
+        File.open(metadata, 'w') do |f|
           f << YAML::dump(metadata_struct)
         end
       end
@@ -205,10 +227,10 @@ module FakeS3
         content = File.join(filename, FAKE_S3_METADATA_DIR, "content")
         metadata = File.join(filename, FAKE_S3_METADATA_DIR, "metadata")
 
-        File.open(content,'wb') { |f| f << filedata }
+        File.open(content, 'wb') { |f| f << filedata }
 
         metadata_struct = create_metadata(content, request)
-        File.open(metadata,'w') do |f|
+        File.open(metadata, 'w') do |f|
           f << YAML::dump(metadata_struct)
         end
 
@@ -224,7 +246,8 @@ module FakeS3
 
         bucket.add(obj)
         return obj
-      rescue
+
+      rescue StandardError
         unless @quiet_mode
           puts $!
           $!.backtrace.each { |line| puts line }
@@ -234,15 +257,15 @@ module FakeS3
     end
 
     def combine_object_parts(bucket, upload_id, object_name, parts, request)
-      upload_path   = File.join(@root, bucket.name)
-      base_path     = File.join(upload_path, "#{upload_id}_#{object_name}")
+      upload_path = File.join(@root, bucket.name)
+      base_path = File.join(upload_path, "#{upload_id}_#{object_name}")
 
       complete_file = ""
-      chunk         = ""
-      part_paths    = []
+      chunk = ""
+      part_paths = []
 
       parts.sort_by { |part| part[:number] }.each do |part|
-        part_path    = "#{base_path}_part#{part[:number]}"
+        part_path = "#{base_path}_part#{part[:number]}"
         content_path = File.join(part_path, FAKE_S3_METADATA_DIR, 'content')
 
         File.open(content_path, 'rb') { |f| chunk = f.read }
@@ -250,7 +273,7 @@ module FakeS3
 
         raise new Error "invalid file chunk" unless part[:etag] == etag
         complete_file << chunk
-        part_paths    << part_path
+        part_paths << part_path
       end
 
       object = do_store_object(bucket, object_name, complete_file, request)
@@ -263,9 +286,9 @@ module FakeS3
       object
     end
 
-    def delete_object(bucket,object_name,request)
+    def delete_object(bucket, object_name, request)
       begin
-        filename = File.join(@root,bucket.name,object_name)
+        filename = File.join(@root, bucket.name, object_name)
         FileUtils.rm_rf(filename)
         object = bucket.find(object_name)
         bucket.remove(object)
@@ -280,7 +303,7 @@ module FakeS3
       begin
         filenames = []
         objects.each do |object_name|
-          filenames << File.join(@root,bucket.name,object_name)
+          filenames << File.join(@root, bucket.name, object_name)
           object = bucket.find(object_name)
           bucket.remove(object)
         end
