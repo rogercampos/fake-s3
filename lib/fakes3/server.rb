@@ -588,6 +588,13 @@ module FakeS3
         :BindAddress => @address,
         :Port => @port
       }
+
+      if extra_options[:request_timeout]
+        webrick_config.merge!(
+          :RequestTimeout => extra_options[:request_timeout].to_i
+        )
+      end
+
       if !@ssl_cert_path.to_s.empty?
         webrick_config.merge!(
           {
