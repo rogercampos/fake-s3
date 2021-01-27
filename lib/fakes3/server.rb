@@ -483,7 +483,7 @@ module FakeS3
       # for multipart copy
       copy_source = webrick_req.header["x-amz-copy-source"]
       if copy_source and copy_source.size == 1
-        copy_source = URI.unescape copy_source.first
+        copy_source = Addressable::URI.unescape copy_source.first
         src_elems   = copy_source.split("/")
         root_offset = src_elems[0] == "" ? 1 : 0
         s_req.src_bucket = src_elems[root_offset]
